@@ -5,42 +5,53 @@ use std::{
     ops::{Add, BitOr, Mul},
 };
 
+/// The building block of generator-combinators.
 #[derive(Clone, Debug)]
 pub enum Generator {
     // Some convenience 'constants':
     /// Lowercase letters (a-z)
     AlphaLower,
+
     /// Uppercase letters (A-Z)
     AlphaUpper,
+
     /// Base-10 digits (0-9)
     Digit,
+
     /// Lowercase letters and digits (a-z0-9)
     AlNum,
-    //
+
+    /// Generates a [`char`] literal.
     Char(char),
 
-    /// A pattern consisting of an exact string literal.
+    /// Generates a [`String`] literal.
+    ///
     /// Note that this is not a character class.
-    /// `Str("foo".into())` would generate the exact string `"foo"`
+    /// `Str("foo".into())` generates the exact string `"foo"`
     Str(String),
 
     /// A choice between two or more patterns
+    ///
     /// As a regex, this would be, eg, `(a|b|c)`
     OneOf(Vec<Generator>),
 
-    /// An optional pattern, the same as RepeatedMN(a, 0, 1)
+    /// An optional pattern, the same as [`RepeatedMN`](Self::RepeatedMN)`(a, 0, 1)`
+    ///
     /// As a regex, this would be `a?`
     Optional(Box<Generator>),
 
-    /// A pattern repeated exactly n times. This is the same as RepeatedMN(a, n, n).
+    /// A pattern repeated exactly _n_ times. This is the same as [`RepeatedMN`](Self::RepeatedMN)`(a, n, n)`
+    ///
     /// As a regex, this would be `a{n}`
     RepeatedN(Box<Generator>, usize),
 
-    /// A pattern repeated at least m times, as many as n times.
+    /// A pattern repeated at least _m_ times, as many as _n_ times.
+    ///
     /// As a regex, this would be `a{m,n}`
     RepeatedMN(Box<Generator>, usize, usize),
 
     /// Two or more sequential patterns.
+    ///
     /// As a regex, this would be, eg, `abc`
     Sequence(Vec<Generator>),
 }
@@ -50,6 +61,9 @@ impl Generator {
     const ASCII_UPPER_A: u8 = 65;
     const ASCII_0: u8 = 48;
 
+    /// Indicates whether this `Generator` covers multiple values.
+    ///
+    /// This is currently only used to identify whether [`regex`] should group in parens.
     fn is_multi(&self) -> bool {
         use Generator::*;
         match self {
@@ -63,7 +77,7 @@ impl Generator {
         }
     }
 
-    /// Create a regular expression that represents the patterns generated
+    /// Create a regular expression that represents the patterns generated.
     pub fn regex(&self) -> String {
         use Generator::*;
 
@@ -82,7 +96,7 @@ impl Generator {
                 format!("({})", regexes.join("|"))
             }
             Optional(a) => {
-                if self.is_multi() {
+                if a.is_multi() {
                     format!("({})?", a.regex())
                 } else {
                     format!("{}?", a.regex())
@@ -97,6 +111,7 @@ impl Generator {
         }
     }
 
+    /// The number of possible patterns represented.
     pub fn len(&self) -> u128 {
         use Generator::*;
         match self {
@@ -124,6 +139,7 @@ impl Generator {
         }
     }
 
+    /// Recursively generates the pattern encoded in `num`, appending values to the `result`.
     fn generate_on_top_of(&self, num: &mut u128, result: &mut String) {
         use Generator::*;
 
@@ -159,15 +175,9 @@ impl Generator {
             }
 
             Char(c) => {
-                //if *num > 1 {
-                //    *num -= 1;
-                //}
                 result.push(*c);
             }
             Str(s) => {
-                //if *num > 1 {
-                //    *num -= 1;
-                // }
                 result.push_str(s);
             }
             OneOf(v) => {
@@ -231,7 +241,9 @@ impl Generator {
         result
     }
 
-    /// Makes a component optional
+    /// Makes this `Generator` optional.
+    ///
+    /// As a regex, this is the `?` operator.
     pub fn optional(self) -> Self {
         match &self {
             Generator::Optional(_) => self,
@@ -239,6 +251,7 @@ impl Generator {
         }
     }
 
+    /// Provides an iterator across all possible values for this `Generator`.
     pub fn values(&self) -> ValueGenerator {
         ValueGenerator {
             c: self,
@@ -248,6 +261,11 @@ impl Generator {
     }
 }
 
+impl From<char> for Generator {
+    fn from(c: char) -> Self {
+        Generator::Char(c)
+    }
+}
 impl From<&str> for Generator {
     fn from(s: &str) -> Self {
         Generator::Str(s.to_string())
@@ -304,9 +322,10 @@ impl BitOr for Generator {
 ///
 /// The following expressions are equivalent:
 /// ```
-/// let foostr = Str("foofoo");
-/// let foomul = Str("foo") * 2;
-/// let fooadd = Str("foo") + Str("foo");
+/// use generator_combinator::Generator;
+/// let foostr = Generator::from("foofoo");
+/// let foomul = Generator::from("foo") * 2;
+/// let fooadd = Generator::from("foo") + Generator::from("foo");
 /// ```
 impl Mul<usize> for Generator {
     type Output = Self;
@@ -319,7 +338,8 @@ impl Mul<usize> for Generator {
 
 /// Mul operator for repetitions between `m` and `n` (inclusive)
 /// ```
-/// let foo_two_to_five_times = Str("foo") * (2,5);
+/// use generator_combinator::Generator;
+/// let foo_two_to_five_times = Generator::from("foo") * (2,5);
 /// ```
 impl Mul<(usize, usize)> for Generator {
     type Output = Self;
@@ -337,9 +357,10 @@ impl Mul<(usize, usize)> for Generator {
 ///
 /// The following expressions are equivalent:
 /// ```
-/// let foostr = Str("foofoo");
-/// let foomul = Str("foo") * 2;
-/// let fooadd = Str("foo") + Str("foo");
+/// use generator_combinator::Generator;
+/// let foostr = Generator::from("foofoo");
+/// let foomul = Generator::from("foo") * 2;
+/// let fooadd = Generator::from("foo") + Generator::from("foo");
 /// ```
 impl Add for Generator {
     type Output = Self;
@@ -446,7 +467,7 @@ mod tests {
         use Generator::Char;
         let username = Generator::AlphaLower * (6, 8);
         let user_combos = 26u128.pow(6) + 26u128.pow(7) + 26u128.pow(8);
-        assert_eq!(user_combos, username.len());
+        assert_eq!(username.len(), user_combos);
 
         let tld = Generator::from("com")
             | Generator::from("net")
@@ -454,12 +475,14 @@ mod tests {
             | Generator::from("edu")
             | Generator::from("gov");
         let tld_combos = 5;
-        assert_eq!(tld_combos, tld.len());
+        assert_eq!(tld.len(), tld_combos);
 
         let domain = Generator::AlphaLower * (1, 8) + Char('.') + tld;
-        let domain_combos = 26u128.pow(9) * tld_combos;
-        //assert_eq!(domain_combos, domain.combinations());
-        //let email = username + Char('@') + domain;
+        let domain_combos = (1..=8).map(|i| 26u128.pow(i)).sum::<u128>() * tld_combos;
+        assert_eq!(domain.len(), domain_combos);
+
+        let email = username + Char('@') + domain;
+        assert_eq!(email.len(), domain_combos * user_combos);
     }
 
     #[test]

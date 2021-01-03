@@ -1,6 +1,6 @@
 use crate::Generator;
 
-/// Provides iterable
+/// Provides iterable access to the range of values represented by the [`Generator`]
 pub struct ValueGenerator<'a> {
     pub(crate) c: &'a Generator,
     pub(crate) n: u128,
@@ -20,9 +20,9 @@ impl<'a> Iterator for ValueGenerator<'a> {
     }
 }
 
-#[cfg(with_rand)]
+//#[cfg(with_rand)]
 impl<'a> ValueGenerator<'a> {
-    // Generates a random value in the `Generator`'s domain
+    /// Generates a random value in the [`Generator`]'s domain
     pub fn random(&self) -> String {
         let num = rand::random::<u128>() % self.n;
         self.c.generate_exact(num)
