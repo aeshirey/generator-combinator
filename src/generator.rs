@@ -6,6 +6,27 @@ use std::{
 };
 
 /// The building block of generator-combinators.
+///
+/// A `Generator` can be constructed from strings, chars, and slices:
+///
+/// ```
+/// use generator_combinator::Generator;
+/// let foo = Generator::from("foo"); // generates the string `foo`
+/// let dot = Generator::from('.'); // generates the string `.`
+/// let countries = Generator::from(&["US", "FR", "NZ", "CH"][..]); // generates strings `US`, `FR`, `NZ`, and `CH`.
+/// ```
+///
+/// Individual `Generator`s can be combined as sequences with `+`, as variants with `|`, and with repetition with `* usize` and `* (usize, usize)`:
+///
+/// ```
+/// use generator_combinator::Generator;
+/// let foo = Generator::from("foo");
+/// let bar = Generator::from("bar");
+/// let foobar = foo.clone() + bar.clone(); // generates `foobar`
+/// let foo_or_bar = foo.clone() | bar.clone(); // generates `foo`, `bar`
+/// let foo_or_bar_x2 = foo_or_bar.clone() * 2; // generates `foofoo`, `foobar`, `barfoo`, `barbar`
+/// let foo_x2_to_x4 = foo.clone() * (2, 4); // generates `foofoo`, `foofoofoo`, `foofoofoofoo`
+/// ```
 #[derive(Clone, Debug)]
 pub enum Generator {
     // Some convenience 'constants':
@@ -19,7 +40,16 @@ pub enum Generator {
     Digit,
 
     /// Lowercase letters and digits (a-z0-9)
-    AlNum,
+    AlphaNumLower,
+
+    /// Uppercase letters and digits (A-Z0-9)
+    AlphaNumUpper,
+
+    /// Uppercase hexadecimal values (0-9A-F)
+    HexUpper,
+
+    /// Lowercase hexadecimal values (0-9a-f)
+    HexLower,
 
     /// Generates a [`char`] literal.
     Char(char),
@@ -67,7 +97,8 @@ impl Generator {
     fn is_multi(&self) -> bool {
         use Generator::*;
         match self {
-            AlphaLower | AlphaUpper | Digit | AlNum => false,
+            AlphaLower | AlphaUpper | Digit | AlphaNumUpper | AlphaNumLower | HexUpper
+            | HexLower => false,
             Char(_) | Str(_) => false,
             OneOf(_) => true,
             Optional(_) => false,
@@ -78,6 +109,8 @@ impl Generator {
     }
 
     /// Create a regular expression that represents the patterns generated.
+    ///
+    /// The result here is currently best-guess. It's not guaranteed valid, correct, idiomatic, etc.
     pub fn regex(&self) -> String {
         use Generator::*;
 
@@ -85,7 +118,10 @@ impl Generator {
             AlphaLower => "[a-z]".into(),
             AlphaUpper => "[A-Z]".into(),
             Digit => "\\d".into(),
-            AlNum => "[a-z\\d]".into(),
+            AlphaNumUpper => "[A-Z\\d]".into(),
+            AlphaNumLower => "[a-z\\d]".into(),
+            HexUpper => "[\\dA-F]".into(),
+            HexLower => "[\\da-f]".into(),
             Char(c) => match c {
                 &'.' => "\\.".into(),
                 c => String::from(*c),
@@ -117,7 +153,8 @@ impl Generator {
         match self {
             AlphaLower | AlphaUpper => 26,
             Digit => 10,
-            AlNum => 36,
+            AlphaNumUpper | AlphaNumLower => 36,
+            HexUpper | HexLower => 16,
 
             Char(_) | Str(_) => 1,
 
@@ -162,13 +199,48 @@ impl Generator {
                 let c: char = (Self::ASCII_0 + i).into();
                 result.push(c);
             }
-            AlNum => {
+            AlphaNumUpper => {
+                let i = (*num % 36) as u8;
+                *num /= 36;
+                let c: char = if i < 26 {
+                    Self::ASCII_UPPER_A + i
+                } else {
+                    Self::ASCII_0 + i - 26
+                }
+                .into();
+                result.push(c);
+            }
+            AlphaNumLower => {
                 let i = (*num % 36) as u8;
                 *num /= 36;
                 let c: char = if i < 26 {
                     Self::ASCII_LOWER_A + i
                 } else {
                     Self::ASCII_0 + i - 26
+                }
+                .into();
+                result.push(c);
+            }
+
+            HexUpper => {
+                let i = (*num % 16) as u8;
+                *num /= 16;
+                let c: char = if i < 10 {
+                    Self::ASCII_0 + i
+                } else {
+                    Self::ASCII_UPPER_A + i - 10
+                }
+                .into();
+                result.push(c);
+            }
+
+            HexLower => {
+                let i = (*num % 16) as u8;
+                *num /= 16;
+                let c: char = if i < 10 {
+                    Self::ASCII_0 + i
+                } else {
+                    Self::ASCII_LOWER_A + i - 10
                 }
                 .into();
                 result.push(c);
@@ -493,5 +565,15 @@ mod tests {
 
         let onetwothree = (Generator::Digit * 10).generate_exact(123);
         assert_eq!(onetwothree, "0000000123");
+    }
+
+    #[test]
+    fn generate_hex() {
+        let hex = Generator::from("0x") + Generator::HexUpper * 8;
+
+        assert_eq!(4_294_967_296, hex.len());
+
+        assert_eq!(hex.generate_exact(3_735_928_559), "0xDEADBEEF");
+        assert_eq!(hex.generate_exact(464_375_821), "0x1BADD00D");
     }
 }

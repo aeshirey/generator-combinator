@@ -2,6 +2,7 @@
 //!
 //! `generator-combinator` aims to provide text _generation_ capabilities, similar to but in the opposite direction of [parser combinators](https://en.wikipedia.org/wiki/Parser_combinator) that transform text into structured data.
 //!
+//! # Iris example
 //! Consider the [regular expression](https://en.wikipedia.org/wiki/Regular_expression) `iris( (versicolor|virginica|setosa))?`. This regex matches exactly four input values:
 //! * `"iris"`
 //! * `"iris versicolor"`
@@ -37,6 +38,36 @@
 //!
 //! assert_eq!(iris.regex(), "iris( (versicolor|virginica|setosa))?");
 //! ```
+//!
+//! # Street address example
+//! Generators can be used to produce sample input data according to some pattern. For example, to generate street addresses (which aren't necessarily verifiable):
+//! ```
+//! use generator_combinator::Generator;
+//! let space = Generator::from(' ');
+//!
+//! let number = Generator::Digit * (3, 5);
+//!
+//! let directional = ["N", "E", "S", "W", "NE", "SE", "SW", "NW"];
+//! let directional = space.clone() + Generator::from(&directional[..]);
+//!
+//! let street_names = ["Boren", "Olive", "Spring", "Cherry", "Seneca", "Yesler", "Madison", "James", "Union", "Mercer"];
+//! let street_names = space.clone() + Generator::from(&street_names[..]);
+//!
+//! let street_suffixes = ["Rd", "St", "Ave", "Blvd", "Ln", "Dr", "Way", "Ct", "Pl"];
+//! let street_suffixes = space.clone() + Generator::from(&street_suffixes[..]);
+//!
+//! let address = number
+//!     + directional.clone().optional()
+//!     + street_names
+//!     + street_suffixes
+//!     + directional.clone().optional();
+//!
+//! assert_eq!(address.len(), 809_190_000);
+//!
+//! let addr_values = address.values();
+//! println!("Example: {}", addr_values.random()); //Example: 344 W Yesler Way
+//! println!("Example: {}", addr_values.random()); //Example: 702 NE Spring Ct N
+//! println!("Example: {}", addr_values.random()); //Example: 803 SW Madison Way SE
 
 mod generator;
 pub use generator::Generator;

@@ -4,10 +4,19 @@ version = "0.1.0"
 authors = ["Adam Shirey <adam@shirey@ch>"]
 edition = "2018"
 
+description = "Composes combinators to generate patterns of increasing complexity"
+readme = "README.md"
+homepage = "https://github.com/aeshirey/generator-combinator/"
+repository = "https://github.com/aeshirey/generator-combinator/"
+license-file = "LICENSE"
+keywords = ["generator", "combinator"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 rand = { version = "0.8.0" }
+
+# TODO: permit `rand` to be opt-in
 #rand = { version = "0.8.0", optional = true }
 
 #[features]
