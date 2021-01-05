@@ -69,6 +69,8 @@
 //! println!("Example: {}", addr_values.random()); //Example: 702 NE Spring Ct N
 //! println!("Example: {}", addr_values.random()); //Example: 803 SW Madison Way SE
 
+mod macros;
+
 mod generator;
 pub use generator::Generator;
 

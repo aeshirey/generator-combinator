@@ -27,7 +27,7 @@ use std::{
 /// let foo_or_bar_x2 = foo_or_bar.clone() * 2; // generates `foofoo`, `foobar`, `barfoo`, `barbar`
 /// let foo_x2_to_x4 = foo.clone() * (2, 4); // generates `foofoo`, `foofoofoo`, `foofoofoofoo`
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Generator {
     // Some convenience 'constants':
     /// Lowercase letters (a-z)
@@ -470,6 +470,7 @@ impl Add for Generator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{gen, oneof};
     #[test]
     fn combinations_consts() {
         let eight_alphas = Generator::AlphaLower * 8;
@@ -575,5 +576,24 @@ mod tests {
 
         assert_eq!(hex.generate_exact(3_735_928_559), "0xDEADBEEF");
         assert_eq!(hex.generate_exact(464_375_821), "0x1BADD00D");
+    }
+
+    #[test]
+    fn simplify() {
+        let foo_opt1 = gen!("foo").optional();
+        let foo_opt1 = foo_opt1.optional(); // making an optional optional shouldn't change it
+
+        let foo_opt2 = gen!("foo").optional();
+        assert_eq!(foo_opt1, foo_opt2);
+    }
+
+    #[test]
+    fn equality() {
+        let foo1 = Generator::from("foo");
+        let foo2 = gen!("foo");
+        assert_eq!(foo1, foo2);
+
+        let foo2 = oneof!("foo");
+        assert_eq!(foo1, foo2);
     }
 }
