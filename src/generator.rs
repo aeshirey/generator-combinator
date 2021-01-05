@@ -408,6 +408,13 @@ impl Mul<usize> for Generator {
     }
 }
 
+impl std::ops::MulAssign<usize> for Generator {
+    fn mul_assign(&mut self, rhs: usize) {
+        let repeat = self.clone() * rhs;
+        *self = repeat;
+    }
+}
+
 /// Mul operator for repetitions between `m` and `n` (inclusive)
 /// ```
 /// use generator_combinator::Generator;
@@ -462,6 +469,31 @@ impl Add for Generator {
             (lhs, rhs) => {
                 let v = vec![lhs, rhs];
                 Sequence(v)
+            }
+        }
+    }
+}
+
+impl std::ops::BitOrAssign for Generator {
+    fn bitor_assign(&mut self, rhs: Self) {
+        use Generator::*;
+        match (self, rhs) {
+            (OneOf(v1), OneOf(v2)) => {
+                for c in v2 {
+                    v1.push(c);
+                }
+            }
+            (OneOf(v1), rhs) => {
+                v1.push(rhs);
+            }
+            (lhs, OneOf(mut v2)) => {
+                v2.insert(0, lhs.clone());
+                *lhs = OneOf(v2);
+            }
+
+            (lhs, rhs) => {
+                let v = vec![lhs.clone(), rhs];
+                *lhs = OneOf(v);
             }
         }
     }
@@ -589,11 +621,24 @@ mod tests {
 
     #[test]
     fn equality() {
+        // test the macros
         let foo1 = Generator::from("foo");
         let foo2 = gen!("foo");
         assert_eq!(foo1, foo2);
 
         let foo2 = oneof!("foo");
+        assert_eq!(foo1, foo2);
+
+        // test BitOrAssign
+        let foobar1 = oneof!("foo", "bar");
+        let mut foobar2 = gen!("foo");
+        foobar2 |= gen!("bar");
+        assert_eq!(foobar1, foobar2);
+
+        // test MulAssign
+        let foo1 = gen!("foo") * 2;
+        let mut foo2 = gen!("foo");
+        foo2 *= 2;
         assert_eq!(foo1, foo2);
     }
 }

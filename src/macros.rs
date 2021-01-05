@@ -11,6 +11,6 @@ macro_rules! oneof {
         Generator::from($a)
     };
     ($a:expr, $($b:expr),+) => {
-        Generator::from($a) | oneof!($b)
+        Generator::from($a) | oneof!($($b),+)
     };
 }
