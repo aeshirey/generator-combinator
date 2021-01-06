@@ -9,14 +9,9 @@ let space = Generator::from(' ');
 
 let number = Generator::Digit * (3, 5);
 
-let directional = ["N", "E", "S", "W", "NE", "SE", "SW", "NW"];
-let directional = space.clone() + Generator::from(&directional[..]);
-
-let street_names = ["Boren", "Olive", "Spring", "Cherry", "Seneca", "Yesler", "Madison", "James", "Union", "Mercer"];
-let street_names = space.clone() + Generator::from(&street_names[..]);
-
-let street_suffixes = ["Rd", "St", "Ave", "Blvd", "Ln", "Dr", "Way", "Ct", "Pl"];
-let street_suffixes = space.clone() + Generator::from(&street_suffixes[..]);
+let directional = space.clone() + oneof!("N", "E", "S", "W", "NE", "SE", "SW", "NW");
+let street_names = space.clone() + oneof!("Boren", "Olive", "Spring", "Cherry", "Seneca", "Yesler", "Madison", "James", "Union", "Mercer");
+let street_suffixes = space.clone() + oneof!("Rd", "St", "Ave", "Blvd", "Ln", "Dr", "Way", "Ct", "Pl");
 
 let address = number // street number is 3-5 digits long
     + directional.clone().optional() // optional pre-directional

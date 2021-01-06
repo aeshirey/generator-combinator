@@ -64,12 +64,10 @@ pub enum Generator {
     /// A choice between two or more patterns
     ///
     /// As a regex, this would be, eg, `(a|b|c)`
-    OneOf(Vec<Generator>),
-
-    /// An optional pattern, the same as [`RepeatedMN`](Self::RepeatedMN)`(a, 0, 1)`
-    ///
-    /// As a regex, this would be `a?`
-    Optional(Box<Generator>),
+    OneOf {
+        v: Vec<Generator>,
+        is_optional: bool,
+    },
 
     /// A pattern repeated exactly _n_ times. This is the same as [`RepeatedMN`](Self::RepeatedMN)`(a, n, n)`
     ///
@@ -92,23 +90,6 @@ impl Generator {
     const ASCII_UPPER_A: u8 = 65;
     const ASCII_0: u8 = 48;
 
-    /// Indicates whether this `Generator` covers multiple values.
-    ///
-    /// This is currently only used to identify whether [`regex`] should group in parens.
-    fn is_multi(&self) -> bool {
-        use Generator::*;
-        match self {
-            AlphaLower | AlphaUpper | Digit | AlphaNumUpper | AlphaNumLower | HexUpper
-            | HexLower => false,
-            Char(_) | Str(_) => false,
-            OneOf(_) => true,
-            Optional(_) => false,
-            RepeatedN(_, _) => false,
-            RepeatedMN(_, _, _) => false,
-            Sequence(_) => true,
-        }
-    }
-
     /// Create a regular expression that represents the patterns generated.
     ///
     /// The result here is currently best-guess. It's not guaranteed valid, correct, idiomatic, etc.
@@ -128,16 +109,13 @@ impl Generator {
                 c => String::from(*c),
             },
             Str(s) => s.replace(".", "\\."),
-            OneOf(v) => {
+            OneOf { v, is_optional } => {
                 let regexes = v.iter().map(|a| a.regex()).collect::<Vec<_>>();
-                format!("({})", regexes.join("|"))
-            }
-            Optional(a) => {
-                if a.is_multi() {
-                    format!("({})?", a.regex())
-                } else {
-                    format!("{}?", a.regex())
+                let mut grp = format!("({})", regexes.join("|"));
+                if *is_optional {
+                    grp.push('?');
                 }
+                grp
             }
             RepeatedN(a, n) => a.regex() + &"{" + &n.to_string() + &"}",
             RepeatedMN(a, m, n) => a.regex() + &"{" + &m.to_string() + &"," + &n.to_string() + &"}",
@@ -159,10 +137,10 @@ impl Generator {
 
             Char(_) | Str(_) => 1,
 
-            OneOf(v) => v.iter().map(|a| a.len()).sum(),
-
-            // Optionals add one value (empty/null)
-            Optional(a) => 1 + a.len(),
+            OneOf { v, is_optional } => {
+                // Optionals add one value (empty/null)
+                v.iter().map(|a| a.len()).sum::<u128>() + if *is_optional { 1 } else { 0 }
+            }
 
             // Repeated variants are like base-x numbers of length n, where x is the number of combinations for a.
             // RepeatedN is easy:
@@ -222,7 +200,6 @@ impl Generator {
                 .into();
                 result.push(c);
             }
-
             HexUpper => {
                 let i = (*num % 16) as u8;
                 *num /= 16;
@@ -234,7 +211,6 @@ impl Generator {
                 .into();
                 result.push(c);
             }
-
             HexLower => {
                 let i = (*num % 16) as u8;
                 *num /= 16;
@@ -246,29 +222,36 @@ impl Generator {
                 .into();
                 result.push(c);
             }
-
             Char(c) => {
                 result.push(*c);
             }
             Str(s) => {
                 result.push_str(s);
             }
-            OneOf(v) => {
-                let i = (*num % v.len() as u128) as usize;
-                *num /= v.len() as u128;
-                v[i as usize].generate_on_top_of(num, result)
-            }
-            Optional(a) => {
-                let a_len = a.len();
-                let i = *num % (a_len + 1);
+            OneOf { v, is_optional } => {
+                let v_len = self.len();
 
-                let new_num = *num / (a_len + 1);
+                // Divide out the impact of this OneOf; the remainder can be
+                // used internally and we'll update num for parent recursions.
+                let new_num = *num / v_len;
+                *num %= v_len;
 
-                if i > 0 {
-                    // Use the optional value. First, undo its effect.
-                    *num -= 1;
-
-                    a.generate_on_top_of(num, result);
+                if *is_optional && *num == 0 {
+                    // use the optional - don't recurse and don't update result
+                } else {
+                    if *is_optional {
+                        *num -= 1;
+                    }
+                    for a in v {
+                        let a_len = a.len() as u128;
+                        if *num < a_len {
+                            a.generate_on_top_of(num, result);
+                            break;
+                        } else {
+                            // subtract out the impact of this OneOf branch
+                            *num -= a_len;
+                        }
+                    }
                 }
 
                 *num = new_num;
@@ -318,9 +301,26 @@ impl Generator {
     ///
     /// As a regex, this is the `?` operator.
     pub fn optional(self) -> Self {
-        match &self {
-            Generator::Optional(_) => self,
-            _ => Generator::Optional(Box::new(self)),
+        use Generator::OneOf;
+        match self {
+            OneOf {
+                v,
+                is_optional: true,
+            } => OneOf {
+                v,
+                is_optional: true,
+            },
+            OneOf {
+                v,
+                is_optional: false,
+            } => OneOf {
+                v,
+                is_optional: true,
+            },
+            _ => OneOf {
+                v: vec![self],
+                is_optional: true,
+            },
         }
     }
 
@@ -332,6 +332,31 @@ impl Generator {
             i: 0,
         }
     }
+
+    // Removes redundant [`Self::Optional`] values from [`Self::OneOf`].
+    //
+    // When `OneOf` contains multiple `Optional` values, the generator would incorrectly
+    // produce two logically identical results. This function detects this scenario,
+    // keeping the first `Optional` value and unboxing the remaining values, if any.
+    /*
+    fn reduce_optionals(v: &mut Vec<Generator>) {
+        use Generator::*;
+        let mut found_opt = false;
+
+        for a in v.iter_mut() {
+            if let Optional(inner) = a {
+                if found_opt {
+                    // convert this to non-optional
+                    let inner = mem::replace(inner, Box::new(Digit));
+                    *a = *inner;
+                } else {
+                    // first optional can be kept
+                    found_opt = true;
+                }
+            }
+        }
+    }
+    */
 }
 
 impl From<char> for Generator {
@@ -350,11 +375,13 @@ where
     T: AsRef<str> + Display,
 {
     fn from(values: &[T]) -> Self {
+        // todo: check for & remove empty strings and set is_optional to true
+        let is_optional = false;
         let v = values
             .iter()
             .map(|value| Generator::Str(value.to_string()))
             .collect();
-        Generator::OneOf(v)
+        Generator::OneOf { v, is_optional }
     }
 }
 
@@ -364,28 +391,43 @@ impl BitOr for Generator {
     fn bitor(self, rhs: Self) -> Self::Output {
         use Generator::*;
         match (self, rhs) {
-            (OneOf(mut v1), OneOf(v2)) => {
-                for c in v2 {
-                    v1.push(c);
-                }
+            (
+                OneOf {
+                    v: mut v1,
+                    is_optional: opt1,
+                },
+                OneOf {
+                    v: v2,
+                    is_optional: opt2,
+                },
+            ) => {
+                v1.extend(v2);
+                let is_optional = opt1 || opt2;
 
-                OneOf(v1)
+                OneOf { v: v1, is_optional }
             }
-            (OneOf(mut v1), rhs) => {
-                v1.push(rhs);
-                OneOf(v1)
+            (OneOf { mut v, is_optional }, rhs) => {
+                v.push(rhs);
+                OneOf { v, is_optional }
             }
-            (lhs, OneOf(v2)) => {
+            (lhs, OneOf { mut v, is_optional }) => {
+                v.insert(0, lhs);
+                /*
                 let mut v = vec![lhs];
                 for c in v2 {
                     v.push(c);
                 }
-                OneOf(v)
+                Self::reduce_optionals(&mut v);
+                */
+                OneOf { v, is_optional }
             }
 
             (lhs, rhs) => {
                 let v = vec![lhs, rhs];
-                OneOf(v)
+                OneOf {
+                    v,
+                    is_optional: false,
+                }
             }
         }
     }
@@ -517,27 +559,46 @@ impl BitOrAssign for Generator {
     fn bitor_assign(&mut self, rhs: Self) {
         use Generator::*;
         match (self, rhs) {
-            (OneOf(v1), OneOf(v2)) => {
-                for c in v2 {
-                    v1.push(c);
+            (
+                OneOf {
+                    v: v1,
+                    is_optional: opt1,
+                },
+                OneOf {
+                    v: v2,
+                    is_optional: opt2,
+                },
+            ) => {
+                v1.push(Digit);
+                v1.extend(v2);
+                if opt2 {
+                    *opt1 = true;
                 }
             }
-            (OneOf(v1), rhs) => {
-                v1.push(rhs);
+            (OneOf { v, is_optional: _ }, rhs) => {
+                v.push(rhs);
             }
-            (lhs, OneOf(mut v2)) => {
+            (lhs, OneOf { mut v, is_optional }) => {
                 // swap out left to avoid clone
                 let left = mem::replace(lhs, Generator::Digit);
-                v2.insert(0, left);
-                *lhs = OneOf(v2);
+                v.insert(0, left);
+                *lhs = OneOf { v, is_optional };
             }
 
             (lhs, rhs) => {
                 let left = mem::replace(lhs, Generator::Digit);
                 let v = vec![left, rhs];
-                *lhs = OneOf(v);
+                //Self::reduce_optionals(&mut v);
+                *lhs = OneOf {
+                    v,
+                    is_optional: false,
+                };
             }
         }
+
+        // address potential duplicate optionals
+        //let s = mem::replace(self, Digit);
+        //*self = s.reduce_optionals();
     }
 }
 
@@ -600,13 +661,24 @@ mod tests {
     fn combinations_optional() {
         let foo = Generator::from("foo");
         let bar = Generator::from("bar");
-        let foo_bar = foo.clone() | bar;
 
-        let opt_foo = Generator::Optional(Box::new(foo));
+        let opt_foo = Generator::OneOf {
+            v: vec![foo.clone()],
+            is_optional: true,
+        };
         assert_eq!(2, opt_foo.len());
 
-        let opt_foo_bar = Generator::Optional(Box::new(foo_bar));
+        let opt_foo_bar = Generator::OneOf {
+            v: vec![foo.clone(), bar.clone()],
+            is_optional: true,
+        };
         assert_eq!(3, opt_foo_bar.len());
+
+        let mut v = opt_foo_bar.values();
+        assert_eq!(Some("".into()), v.next());
+        assert_eq!(Some("foo".into()), v.next());
+        assert_eq!(Some("bar".into()), v.next());
+        assert_eq!(None, v.next());
     }
 
     #[test]
@@ -694,5 +766,17 @@ mod tests {
         let mut foo2 = gen!("foo");
         foo2 *= (2, 3);
         assert_eq!(foo1, foo2);
+    }
+
+    #[test]
+    fn test_reduce_optionals() {
+        let foo = gen!("foo").optional();
+        let bar = gen!("bar").optional();
+        let baz = gen!("baz").optional();
+        let foobarbaz1 = foo | bar | baz;
+
+        let foobarbaz2 = gen!("foo").optional() | oneof!("bar", "baz");
+
+        assert_eq!(foobarbaz1, foobarbaz2);
     }
 }
