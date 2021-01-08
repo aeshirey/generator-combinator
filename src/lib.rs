@@ -12,7 +12,7 @@
 //! This regex does _not_ match other values such as `"iris fulva"` or `"iris "` (with trailing space). If we want to generate these four valid input values (something like a reverse regex), we can build a generator-combinator as:
 
 //! ```
-//! use generator_combinator::Generator;
+//! use generator_combinator::{oneof, Generator};
 //! let genus = Generator::from("iris");
 //!
 //! // Support three different species
@@ -71,5 +71,5 @@ mod macros;
 mod generator;
 pub use generator::Generator;
 
-mod value_generator;
-pub use value_generator::ValueGenerator;
+mod iter;
+pub use iter::Iter;

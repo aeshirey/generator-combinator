@@ -1,5 +1,5 @@
 #![allow(non_camel_case_types)]
-use crate::ValueGenerator;
+use crate::Iter;
 use std::{
     fmt::Display,
     mem,
@@ -325,8 +325,8 @@ impl Generator {
     }
 
     /// Provides an iterator across all possible values for this `Generator`.
-    pub fn values(&self) -> ValueGenerator {
-        ValueGenerator {
+    pub fn values(&self) -> Iter {
+        Iter {
             c: self,
             n: self.len(),
             i: 0,
