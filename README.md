@@ -1,6 +1,8 @@
 # generator-combinator
 Provides [parser-combinator](https://en.wikipedia.org/wiki/Parser_combinator)-like combinable text _generation_ in Rust.
 
+You can add this crate to your Rust project with `generator-combinator = "0.1.0"`. [Documentation on docs.rs](https://docs.rs/generator-combinator) and [crates.io listing](https://crates.io/crates/generator-combinator).
+
 To generate street address-like input, only a few components are required. We can quickly produce a range of nearly 1B possible values that can be fully iterated over or randomly sampled:
 
 ```rust
