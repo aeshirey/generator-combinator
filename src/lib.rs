@@ -47,7 +47,7 @@
 //! use generator_combinator::{Generator, oneof, gen};
 //! let space = Generator::from(' ');
 //!
-//! let number = Generator::Digit * (3, 5);
+//! let number = (Generator::Digit * (3, 5)).transform(|s| s.trim_start_matches('0').to_string());
 //!
 //! let directional = space.clone() + oneof!("N", "E", "S", "W", "NE", "SE", "SW", "NW");
 //! let street_names = space.clone() + oneof!("Boren", "Olive", "Spring", "Cherry", "Seneca", "Yesler", "Madison", "James", "Union", "Mercer");

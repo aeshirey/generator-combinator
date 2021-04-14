@@ -6,6 +6,23 @@ use std::{
     ops::{Add, AddAssign, BitOr, BitOrAssign, Mul, MulAssign},
 };
 
+#[derive(Clone, Eq)]
+pub struct TransformFn(Box<fn(String) -> String>);
+
+impl std::fmt::Debug for TransformFn {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "<TransformFn>")
+    }
+}
+
+/// **Huge caveat**: define _all_ transforms to be equal since we can't inspect what they're going to do.
+/// This allows us to continue using `PartialEq` with [Generator]
+impl PartialEq for TransformFn {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
 /// The building block of generator-combinators.
 ///
 /// A `Generator` can be constructed from strings, chars, and slices:
@@ -28,7 +45,7 @@ use std::{
 /// let foo_or_bar_x2 = foo_or_bar.clone() * 2; // generates `foofoo`, `foobar`, `barfoo`, `barbar`
 /// let foo_x2_to_x4 = foo.clone() * (2, 4); // generates `foofoo`, `foofoofoo`, `foofoofoofoo`
 /// ```
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Generator {
     // Some convenience 'constants':
     /// Lowercase letters (a-z)
@@ -63,7 +80,7 @@ pub enum Generator {
 
     /// A choice between two or more patterns
     ///
-    /// As a regex, this would be, eg, `(a|b|c)`
+    /// As a regex, this would be, eg, `(a|b|c)?` (depending on `is_optional`)
     OneOf {
         v: Vec<Generator>,
         is_optional: bool,
@@ -83,6 +100,11 @@ pub enum Generator {
     ///
     /// As a regex, this would be, eg, `abc`
     Sequence(Vec<Generator>),
+
+    Transform {
+        inner: Box<Generator>,
+        transform_fn: TransformFn,
+    },
 }
 
 impl Generator {
@@ -123,6 +145,10 @@ impl Generator {
                 let regexes = v.iter().map(|a| a.regex()).collect::<Vec<_>>();
                 regexes.join("")
             }
+            Transform {
+                inner,
+                transform_fn: _,
+            } => inner.regex(),
         }
     }
 
@@ -152,6 +178,10 @@ impl Generator {
             }
 
             Sequence(v) => v.iter().map(|a| a.len()).fold(1, |acc, n| acc * n),
+            Transform {
+                inner,
+                transform_fn: _,
+            } => inner.len(),
         }
     }
 
@@ -282,6 +312,15 @@ impl Generator {
                     a.generate_on_top_of(num, result);
                 }
             }
+            Transform {
+                inner,
+                transform_fn,
+            } => {
+                let mut r = String::new();
+                inner.generate_on_top_of(num, &mut r);
+                let r = (transform_fn.0)(r);
+                result.push_str(&r);
+            }
         }
     }
 
@@ -330,6 +369,15 @@ impl Generator {
             c: self,
             n: self.len(),
             i: 0,
+        }
+    }
+
+    pub fn transform(self, f: fn(String) -> String) -> Self {
+        let transform_fn = TransformFn(Box::new(f));
+
+        Self::Transform {
+            inner: Box::new(self),
+            transform_fn,
         }
     }
 
@@ -412,13 +460,6 @@ impl BitOr for Generator {
             }
             (lhs, OneOf { mut v, is_optional }) => {
                 v.insert(0, lhs);
-                /*
-                let mut v = vec![lhs];
-                for c in v2 {
-                    v.push(c);
-                }
-                Self::reduce_optionals(&mut v);
-                */
                 OneOf { v, is_optional }
             }
 
@@ -712,6 +753,12 @@ mod tests {
 
         let onetwothree = (Generator::Digit * 10).generate_exact(123);
         assert_eq!(onetwothree, "0000000123");
+
+        // Same thing but with postprocessing
+        let onetwothree = (Generator::Digit * 10)
+            .transform(|s| s.trim_start_matches('0').to_string())
+            .generate_exact(123);
+        assert_eq!(onetwothree, "123");
     }
 
     #[test]
@@ -770,13 +817,54 @@ mod tests {
 
     #[test]
     fn test_reduce_optionals() {
+        // A naive implementation might treat this as:
+        // ("foo" | "") | ("bar" | "") | ("baz" | ""), which could incorrectly generate two unnecessary empty strings
         let foo = gen!("foo").optional();
         let bar = gen!("bar").optional();
         let baz = gen!("baz").optional();
         let foobarbaz1 = foo | bar | baz;
 
+        // The ideal approach is to know that with each of foo, bar, and baz being optional, it's the same as:
         let foobarbaz2 = gen!("foo").optional() | oneof!("bar", "baz");
 
+        // Which they are, taken care of by BitOr
         assert_eq!(foobarbaz1, foobarbaz2);
+
+        // And it will generate the four values as expected
+        let values: Vec<_> = foobarbaz1.values().collect();
+        assert_eq!(vec!["", "foo", "bar", "baz"], values);
+
+        // Note that the optional value is boosted to the front of the line and foo|bar|baz are commoned up
+        let foobarbaz3 = gen!("foo") | gen!("bar").optional() | gen!("baz");
+        assert_eq!(foobarbaz1, foobarbaz3);
+        assert!(
+            matches!(foobarbaz3, Generator::OneOf { v, is_optional } if v.len() == 3 && is_optional)
+        );
+    }
+
+    #[test]
+    fn test_transform() {
+        let foobarbaz = oneof!("foo", "bar", "baz");
+
+        // Trim any leading 'b' from (foo|bar|baz)
+        let fooaraz = foobarbaz.clone().transform(|s| {
+            if s.starts_with("b") {
+                s.trim_start_matches('b').to_string()
+            } else {
+                s
+            }
+        });
+
+        assert_eq!(3, fooaraz.len());
+        assert_eq!("foo", fooaraz.generate_exact(0));
+        assert_eq!("ar", fooaraz.generate_exact(1));
+        assert_eq!("az", fooaraz.generate_exact(2));
+
+        // Uppercase (foo|bar|baz)
+        let foobarbaz_upper = foobarbaz.clone().transform(|s| s.to_uppercase());
+        assert_eq!(3, foobarbaz_upper.len());
+        assert_eq!("FOO", foobarbaz_upper.generate_exact(0));
+        assert_eq!("BAR", foobarbaz_upper.generate_exact(1));
+        assert_eq!("BAZ", foobarbaz_upper.generate_exact(2));
     }
 }
