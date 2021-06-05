@@ -31,7 +31,7 @@
 //! // Our generator should produce exactly four values
 //! assert_eq!(iris.len(), 4);
 //!
-//! let mut iris_values = iris.values();
+//! let mut iris_values = iris.generate_all();
 //! assert_eq!(iris_values.next(), Some("iris".into()));
 //! assert_eq!(iris_values.next(), Some("iris versicolor".into()));
 //! assert_eq!(iris_values.next(), Some("iris virginica".into()));
@@ -61,10 +61,14 @@
 //!
 //! assert_eq!(address.len(), 809_190_000);
 //!
-//! let addr_values = address.values();
+//! let addr_values = address.generate_all();
 //! println!("Example: {}", addr_values.random()); //Example: 344 W Yesler Way
 //! println!("Example: {}", addr_values.random()); //Example: 702 NE Spring Ct N
 //! println!("Example: {}", addr_values.random()); //Example: 803 SW Madison Way SE
+
+#[cfg(test)]
+#[macro_use]
+extern crate quickcheck;
 
 mod macros;
 
@@ -72,4 +76,8 @@ mod generator;
 pub use generator::Generator;
 
 mod iter;
-pub use iter::Iter;
+pub use iter::StringIter;
+mod visit_iter;
+pub use visit_iter::VisitIter;
+
+mod transformfn;

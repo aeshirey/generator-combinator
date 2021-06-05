@@ -1,27 +1,11 @@
 #![allow(non_camel_case_types)]
-use crate::Iter;
+use crate::iter::StringIter;
+use crate::transformfn::TransformFn;
 use std::{
     fmt::Display,
     mem,
     ops::{Add, AddAssign, BitOr, BitOrAssign, Mul, MulAssign},
 };
-
-#[derive(Clone, Eq)]
-pub struct TransformFn(Box<fn(String) -> String>);
-
-impl std::fmt::Debug for TransformFn {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "<TransformFn>")
-    }
-}
-
-/// **Huge caveat**: define _all_ transforms to be equal since we can't inspect what they're going to do.
-/// This allows us to continue using `PartialEq` with [Generator]
-impl PartialEq for TransformFn {
-    fn eq(&self, _other: &Self) -> bool {
-        true
-    }
-}
 
 /// The building block of generator-combinators.
 ///
@@ -140,7 +124,8 @@ impl Generator {
                 grp
             }
             RepeatedN(a, n) => a.regex() + &"{" + &n.to_string() + &"}",
-            RepeatedMN(a, m, n) => a.regex() + &"{" + &m.to_string() + &"," + &n.to_string() + &"}",
+            //RepeatedN(a, n) => format!("{}{{{}}}", a.regex, n),
+            RepeatedMN(a, m, n) => a.regex() + "{" + &m.to_string() + "," + &n.to_string() + "}",
             Sequence(v) => {
                 let regexes = v.iter().map(|a| a.regex()).collect::<Vec<_>>();
                 regexes.join("")
@@ -177,7 +162,7 @@ impl Generator {
                 (*m..=*n).map(|i| base.pow(i as u32)).sum()
             }
 
-            Sequence(v) => v.iter().map(|a| a.len()).fold(1, |acc, n| acc * n),
+            Sequence(v) => v.iter().map(|a| a.len()).product(),
             Transform {
                 inner,
                 transform_fn: _,
@@ -324,7 +309,10 @@ impl Generator {
         }
     }
 
-    pub fn generate_exact(&self, num: u128) -> String {
+    /// Generates the [String] encoded by the specified `num`.
+    ///
+    /// Panics if `num` exceeds the length given by [Generator::len]
+    pub fn generate_one(&self, num: u128) -> String {
         let range = self.len();
         assert!(num < range);
 
@@ -364,12 +352,8 @@ impl Generator {
     }
 
     /// Provides an iterator across all possible values for this `Generator`.
-    pub fn values(&self) -> Iter {
-        Iter {
-            c: self,
-            n: self.len(),
-            i: 0,
-        }
+    pub fn generate_all(&self) -> StringIter {
+        self.into()
     }
 
     pub fn transform(self, f: fn(String) -> String) -> Self {
@@ -405,6 +389,152 @@ impl Generator {
         }
     }
     */
+
+    //pub fn visit_all(&self) -> VisitIter {
+    //    self.into()
+    //}
+
+    pub fn visit_one<F>(&self, mut num: u128, mut cb: F)
+    where
+        F: FnMut(&str),
+    {
+        let range = self.len();
+        assert!(num < range);
+
+        self.visit_exact_inner(&mut num, &mut cb);
+    }
+
+    fn visit_exact_inner<F>(&self, num: &mut u128, cb: &mut F)
+    where
+        F: FnMut(&str),
+    {
+        use Generator::*;
+
+        match self {
+            AlphaLower => {
+                let i = (*num % 26) as u8;
+                *num /= 26;
+                let c: char = (Self::ASCII_LOWER_A + i).into();
+                cb(&String::from(c));
+            }
+            AlphaUpper => {
+                let i = (*num % 26) as u8;
+                *num /= 26;
+                let c: char = (Self::ASCII_UPPER_A + i).into();
+                cb(&String::from(c));
+            }
+            Digit => {
+                let i = (*num % 10) as u8;
+                *num /= 10;
+                let c: char = (Self::ASCII_0 + i).into();
+                cb(&String::from(c));
+            }
+            AlphaNumUpper => {
+                let i = (*num % 36) as u8;
+                *num /= 36;
+                let c: char = if i < 26 {
+                    Self::ASCII_UPPER_A + i
+                } else {
+                    Self::ASCII_0 + i - 26
+                }
+                .into();
+                cb(&String::from(c));
+            }
+            AlphaNumLower => {
+                let i = (*num % 36) as u8;
+                *num /= 36;
+                let c: char = if i < 26 {
+                    Self::ASCII_LOWER_A + i
+                } else {
+                    Self::ASCII_0 + i - 26
+                }
+                .into();
+                cb(&String::from(c));
+            }
+            HexUpper => {
+                let i = (*num % 16) as u8;
+                *num /= 16;
+                let c: char = if i < 10 {
+                    Self::ASCII_0 + i
+                } else {
+                    Self::ASCII_UPPER_A + i - 10
+                }
+                .into();
+                cb(&String::from(c));
+            }
+            HexLower => {
+                let i = (*num % 16) as u8;
+                *num /= 16;
+                let c: char = if i < 10 {
+                    Self::ASCII_0 + i
+                } else {
+                    Self::ASCII_LOWER_A + i - 10
+                }
+                .into();
+                cb(&String::from(c));
+            }
+            Char(c) => cb(&String::from(*c)),
+            Str(s) => cb(s),
+            OneOf { v, is_optional } => {
+                let v_len = self.len();
+
+                // Divide out the impact of this OneOf; the remainder can be
+                // used internally and we'll update num for parent recursions.
+                let new_num = *num / v_len;
+                *num %= v_len;
+
+                if *is_optional && *num == 0 {
+                    // use the optional - don't recurse and don't update result
+                } else {
+                    if *is_optional {
+                        *num -= 1;
+                    }
+                    for a in v {
+                        let a_len = a.len() as u128;
+                        if *num < a_len {
+                            a.visit_exact_inner(num, cb);
+                            break;
+                        } else {
+                            // subtract out the impact of this OneOf branch
+                            *num -= a_len;
+                        }
+                    }
+                }
+
+                *num = new_num;
+            }
+            RepeatedN(a, n) => {
+                // Repeat this one exactly n times
+                let mut parts = Vec::with_capacity(*n);
+                for _ in 0..*n {
+                    let mut r = String::new();
+                    a.generate_on_top_of(num, &mut r);
+                    parts.push(r);
+                }
+
+                parts.iter().rev().for_each(|part| cb(part));
+            }
+            RepeatedMN(a, m, n) => {
+                let mut parts = Vec::with_capacity(n - m + 1);
+                for _ in *m..=*n {
+                    let mut r = String::new();
+                    a.generate_on_top_of(num, &mut r);
+                    parts.push(r);
+                }
+                parts.iter().rev().for_each(|part| cb(part));
+            }
+            Sequence(v) => v.iter().for_each(|a| a.visit_exact_inner(num, cb)),
+            Transform {
+                inner,
+                transform_fn,
+            } => {
+                let mut r = String::new();
+                inner.generate_on_top_of(num, &mut r);
+                let r = (transform_fn.0)(r);
+                cb(&r);
+            }
+        }
+    }
 }
 
 impl From<char> for Generator {
@@ -412,6 +542,7 @@ impl From<char> for Generator {
         Generator::Char(c)
     }
 }
+
 impl From<&str> for Generator {
     fn from(s: &str) -> Self {
         Generator::Str(s.to_string())
@@ -450,8 +581,8 @@ impl BitOr for Generator {
                 },
             ) => {
                 v1.extend(v2);
-                let is_optional = opt1 || opt2;
 
+                let is_optional = opt1 || opt2;
                 OneOf { v: v1, is_optional }
             }
             (OneOf { mut v, is_optional }, rhs) => {
@@ -715,7 +846,7 @@ mod tests {
         };
         assert_eq!(3, opt_foo_bar.len());
 
-        let mut v = opt_foo_bar.values();
+        let mut v = opt_foo_bar.generate_all();
         assert_eq!(Some("".into()), v.next());
         assert_eq!(Some("foo".into()), v.next());
         assert_eq!(Some("bar".into()), v.next());
@@ -748,16 +879,16 @@ mod tests {
     #[test]
     fn generate_alpha1() {
         let alphas2 = Generator::AlphaLower * 2;
-        let aa = alphas2.generate_exact(0);
+        let aa = alphas2.generate_one(0);
         assert_eq!(aa, "aa");
 
-        let onetwothree = (Generator::Digit * 10).generate_exact(123);
+        let onetwothree = (Generator::Digit * 10).generate_one(123);
         assert_eq!(onetwothree, "0000000123");
 
         // Same thing but with postprocessing
         let onetwothree = (Generator::Digit * 10)
             .transform(|s| s.trim_start_matches('0').to_string())
-            .generate_exact(123);
+            .generate_one(123);
         assert_eq!(onetwothree, "123");
     }
 
@@ -767,8 +898,8 @@ mod tests {
 
         assert_eq!(4_294_967_296, hex.len());
 
-        assert_eq!(hex.generate_exact(3_735_928_559), "0xDEADBEEF");
-        assert_eq!(hex.generate_exact(464_375_821), "0x1BADD00D");
+        assert_eq!(hex.generate_one(3_735_928_559), "0xDEADBEEF");
+        assert_eq!(hex.generate_one(464_375_821), "0x1BADD00D");
     }
 
     #[test]
@@ -831,7 +962,7 @@ mod tests {
         assert_eq!(foobarbaz1, foobarbaz2);
 
         // And it will generate the four values as expected
-        let values: Vec<_> = foobarbaz1.values().collect();
+        let values: Vec<_> = foobarbaz1.generate_all().collect();
         assert_eq!(vec!["", "foo", "bar", "baz"], values);
 
         // Note that the optional value is boosted to the front of the line and foo|bar|baz are commoned up
@@ -856,15 +987,80 @@ mod tests {
         });
 
         assert_eq!(3, fooaraz.len());
-        assert_eq!("foo", fooaraz.generate_exact(0));
-        assert_eq!("ar", fooaraz.generate_exact(1));
-        assert_eq!("az", fooaraz.generate_exact(2));
+        assert_eq!("foo", fooaraz.generate_one(0));
+        assert_eq!("ar", fooaraz.generate_one(1));
+        assert_eq!("az", fooaraz.generate_one(2));
 
         // Uppercase (foo|bar|baz)
         let foobarbaz_upper = foobarbaz.clone().transform(|s| s.to_uppercase());
         assert_eq!(3, foobarbaz_upper.len());
-        assert_eq!("FOO", foobarbaz_upper.generate_exact(0));
-        assert_eq!("BAR", foobarbaz_upper.generate_exact(1));
-        assert_eq!("BAZ", foobarbaz_upper.generate_exact(2));
+        assert_eq!("FOO", foobarbaz_upper.generate_one(0));
+        assert_eq!("BAR", foobarbaz_upper.generate_one(1));
+        assert_eq!("BAZ", foobarbaz_upper.generate_one(2));
+
+        let ten_digits = Generator::Digit * 10;
+        let onetwothree = ten_digits.generate_one(123);
+        assert_eq!(onetwothree, "0000000123");
+        let onetwothree = ten_digits
+            .transform(|s| s.trim_start_matches('0').to_string())
+            .generate_one(123);
+        assert_eq!(onetwothree, "123");
+    }
+
+    #[test]
+    fn test_visit() {
+        let foobarbaz = oneof!("foo", "bar", "baz");
+        let fbb_nnnn = foobarbaz + Generator::Digit * 4;
+
+        let bar1234 = fbb_nnnn.generate_one(3703);
+        assert_eq!("bar1234", bar1234);
+
+        let mut s = String::with_capacity(7);
+        fbb_nnnn.visit_one(3703, |part| s.push_str(part));
+        assert_eq!("bar1234", s);
+    }
+
+    #[test]
+    fn regex() {
+        let foobarbaz = oneof!("foo", "bar", "baz");
+        let fbb_nnnn = foobarbaz + Generator::Digit * 4;
+        assert_eq!("(foo|bar|baz)\\d{4}", fbb_nnnn.regex());
+
+        let hi45 = Generator::from("hi") * (4, 5);
+        assert_eq!("hi{4,5}", hi45.regex());
+
+        let sea = Generator::from("Seattle") + gen!(", WA").optional();
+        assert_eq!("Seattle(, WA)?", sea.regex());
+    }
+
+    quickcheck! {
+        /// Check that `generate_one` will produce the same string as would be visited.
+        fn street_addresses(n: u128) -> bool {
+            const RANGE : u128 = 809_190_000;
+
+            let space = Generator::from(' ');
+            let number = (Generator::Digit * (3, 5)).transform(|s| s.trim_start_matches('0').to_string());
+
+            let directional = space.clone() + oneof!("N", "E", "S", "W", "NE", "SE", "SW", "NW");
+            let street_names = space.clone() + oneof!("Boren", "Olive", "Spring", "Cherry", "Seneca", "Yesler", "Madison", "James", "Union", "Mercer");
+            let street_suffixes = space.clone() + oneof!("Rd", "St", "Ave", "Blvd", "Ln", "Dr", "Way", "Ct", "Pl");
+
+            let address = number
+                + directional.clone().optional()
+                + street_names
+                + street_suffixes
+                + directional.clone().optional();
+
+            assert_eq!(address.len(), RANGE);
+            let n = n % RANGE;
+
+            let generated = address.generate_one(n);
+
+            let mut visited  = String::with_capacity(generated.len());
+            address.visit_one(n, |part| visited.push_str(part));
+            assert_eq!(visited, generated);
+
+            true
+        }
     }
 }
