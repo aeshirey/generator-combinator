@@ -77,7 +77,5 @@ pub use generator::Generator;
 
 mod iter;
 pub use iter::StringIter;
-mod visit_iter;
-pub use visit_iter::VisitIter;
 
 mod transformfn;
