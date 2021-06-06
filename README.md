@@ -1,7 +1,7 @@
 # generator-combinator
 Provides [parser-combinator](https://en.wikipedia.org/wiki/Parser_combinator)-like combinable text _generation_ in Rust.
 
-You can add this crate to your Rust project with `generator-combinator = "0.2.0"`. [Documentation on docs.rs](https://docs.rs/generator-combinator) and [crates.io listing](https://crates.io/crates/generator-combinator).
+You can add this crate to your Rust project with `generator-combinator = "0.3.0"`. [Documentation on docs.rs](https://docs.rs/generator-combinator) and [crates.io listing](https://crates.io/crates/generator-combinator).
 
 To generate street address-like input, only a few components are required. We can quickly produce a range of nearly 1B possible values that can be fully iterated over or randomly sampled:
 
@@ -37,7 +37,7 @@ println!("Example: {}", addr_values.random()); //Example: 702 NE Spring Ct N
 println!("Example: {}", addr_values.random()); //Example: 803 SW Madison Way SE
 ```
 
-This library is 0.2.0 - there may be issues, functionality may be incomplete, etc. 
+This library is 0.3.0 - there may be issues, functionality may be incomplete, etc. 
 
 ## Known issues / _nota bene_
 - Generated digits include leading zeros. Use `.transform` to address this, if desired.
@@ -57,6 +57,4 @@ at your option.
 
 ### Contribution
 
-Unless you explicitly state otherwise, any contribution intentionally submitted
-for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any
-additional terms or conditions.
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.

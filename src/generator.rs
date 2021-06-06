@@ -85,6 +85,8 @@ pub enum Generator {
     /// As a regex, this would be, eg, `abc`
     Sequence(Vec<Generator>),
 
+
+    /// Wrap the current generator in a user-defined transformation.
     Transform {
         inner: Box<Generator>,
         transform_fn: TransformFn,
@@ -309,7 +311,7 @@ impl Generator {
         }
     }
 
-    /// Generates the [String] encoded by the specified `num`.
+    /// Generates the [`String`] encoded by the specified `num`.
     ///
     /// Panics if `num` exceeds the length given by [Generator::len]
     pub fn generate_one(&self, num: u128) -> String {
@@ -356,6 +358,7 @@ impl Generator {
         self.into()
     }
 
+    /// Includes a user-defined transformation when generating values.
     pub fn transform(self, f: fn(String) -> String) -> Self {
         let transform_fn = TransformFn(Box::new(f));
 
@@ -390,10 +393,12 @@ impl Generator {
     }
     */
 
-    //pub fn visit_all(&self) -> VisitIter {
-    //    self.into()
-    //}
-
+    /// For a value specified by `num`, applies the callback `cb` for each of the component values
+    /// for this Generator.
+    ///
+    /// This may be preferable to [`generate_one`] if you want to see the individual components
+    /// comprising the final string and/or if you want to avoid the memory allocation and freeing
+    /// by creating the values.
     pub fn visit_one<F>(&self, mut num: u128, mut cb: F)
     where
         F: FnMut(&str),
@@ -404,6 +409,7 @@ impl Generator {
         self.visit_exact_inner(&mut num, &mut cb);
     }
 
+    /// Internal function to recursively visit each of the components of this Generator.
     fn visit_exact_inner<F>(&self, num: &mut u128, cb: &mut F)
     where
         F: FnMut(&str),
