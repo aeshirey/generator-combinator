@@ -31,7 +31,7 @@ impl<'a> Iterator for VisitIter<'a> {
     }
 }
 
-//#[cfg(with_rand)]
+#[cfg(feature = "with_rand")]
 impl<'a> VisitIter<'a> {
     /// Generates a random value in the [`Generator`]'s domain
     pub fn random(&self) -> String {

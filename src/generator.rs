@@ -32,19 +32,19 @@ use std::{
 #[derive(Clone, Debug, PartialEq)]
 pub enum Generator {
     // Some convenience 'constants':
-    /// Lowercase letters (a-z)
+    /// Lowercase ASCII letters (a-z)
     AlphaLower,
 
-    /// Uppercase letters (A-Z)
+    /// Uppercase ASCII letters (A-Z)
     AlphaUpper,
 
     /// Base-10 digits (0-9)
     Digit,
 
-    /// Lowercase letters and digits (a-z0-9)
+    /// Lowercase ASCII letters and digits (a-z0-9)
     AlphaNumLower,
 
-    /// Uppercase letters and digits (A-Z0-9)
+    /// Uppercase ASCII letters and digits (A-Z0-9)
     AlphaNumUpper,
 
     /// Uppercase hexadecimal values (0-9A-F)
@@ -85,12 +85,14 @@ pub enum Generator {
     /// As a regex, this would be, eg, `abc`
     Sequence(Vec<Generator>),
 
-
     /// Wrap the current generator in a user-defined transformation.
     Transform {
         inner: Box<Generator>,
         transform_fn: TransformFn,
     },
+
+    /// Doesn't generate anything
+    Empty,
 }
 
 impl Generator {
@@ -116,7 +118,7 @@ impl Generator {
                 &'.' => "\\.".into(),
                 c => String::from(*c),
             },
-            Str(s) => s.replace(".", "\\."),
+            Str(s) => s.replace('.', "\\."),
             OneOf { v, is_optional } => {
                 let regexes = v.iter().map(|a| a.regex()).collect::<Vec<_>>();
                 let mut grp = format!("({})", regexes.join("|"));
@@ -125,8 +127,7 @@ impl Generator {
                 }
                 grp
             }
-            RepeatedN(a, n) => a.regex() + &"{" + &n.to_string() + &"}",
-            //RepeatedN(a, n) => format!("{}{{{}}}", a.regex, n),
+            RepeatedN(a, n) => a.regex() + "{" + &n.to_string() + "}",
             RepeatedMN(a, m, n) => a.regex() + "{" + &m.to_string() + "," + &n.to_string() + "}",
             Sequence(v) => {
                 let regexes = v.iter().map(|a| a.regex()).collect::<Vec<_>>();
@@ -136,6 +137,7 @@ impl Generator {
                 inner,
                 transform_fn: _,
             } => inner.regex(),
+            Empty => String::new(),
         }
     }
 
@@ -169,6 +171,7 @@ impl Generator {
                 inner,
                 transform_fn: _,
             } => inner.len(),
+            Empty => 1,
         }
     }
 
@@ -308,6 +311,7 @@ impl Generator {
                 let r = (transform_fn.0)(r);
                 result.push_str(&r);
             }
+            Empty => {}
         }
     }
 
@@ -368,31 +372,6 @@ impl Generator {
         }
     }
 
-    // Removes redundant [`Self::Optional`] values from [`Self::OneOf`].
-    //
-    // When `OneOf` contains multiple `Optional` values, the generator would incorrectly
-    // produce two logically identical results. This function detects this scenario,
-    // keeping the first `Optional` value and unboxing the remaining values, if any.
-    /*
-    fn reduce_optionals(v: &mut Vec<Generator>) {
-        use Generator::*;
-        let mut found_opt = false;
-
-        for a in v.iter_mut() {
-            if let Optional(inner) = a {
-                if found_opt {
-                    // convert this to non-optional
-                    let inner = mem::replace(inner, Box::new(Digit));
-                    *a = *inner;
-                } else {
-                    // first optional can be kept
-                    found_opt = true;
-                }
-            }
-        }
-    }
-    */
-
     /// For a value specified by `num`, applies the callback `cb` for each of the component values
     /// for this Generator.
     ///
@@ -401,7 +380,7 @@ impl Generator {
     /// by creating the values.
     pub fn visit_one<F>(&self, mut num: u128, mut cb: F)
     where
-        F: FnMut(&str),
+        F: FnMut(String),
     {
         let range = self.len();
         assert!(num < range);
@@ -412,7 +391,7 @@ impl Generator {
     /// Internal function to recursively visit each of the components of this Generator.
     fn visit_exact_inner<F>(&self, num: &mut u128, cb: &mut F)
     where
-        F: FnMut(&str),
+        F: FnMut(String),
     {
         use Generator::*;
 
@@ -421,19 +400,19 @@ impl Generator {
                 let i = (*num % 26) as u8;
                 *num /= 26;
                 let c: char = (Self::ASCII_LOWER_A + i).into();
-                cb(&String::from(c));
+                cb(String::from(c));
             }
             AlphaUpper => {
                 let i = (*num % 26) as u8;
                 *num /= 26;
                 let c: char = (Self::ASCII_UPPER_A + i).into();
-                cb(&String::from(c));
+                cb(String::from(c));
             }
             Digit => {
                 let i = (*num % 10) as u8;
                 *num /= 10;
                 let c: char = (Self::ASCII_0 + i).into();
-                cb(&String::from(c));
+                cb(String::from(c));
             }
             AlphaNumUpper => {
                 let i = (*num % 36) as u8;
@@ -444,7 +423,7 @@ impl Generator {
                     Self::ASCII_0 + i - 26
                 }
                 .into();
-                cb(&String::from(c));
+                cb(String::from(c));
             }
             AlphaNumLower => {
                 let i = (*num % 36) as u8;
@@ -455,7 +434,7 @@ impl Generator {
                     Self::ASCII_0 + i - 26
                 }
                 .into();
-                cb(&String::from(c));
+                cb(String::from(c));
             }
             HexUpper => {
                 let i = (*num % 16) as u8;
@@ -466,7 +445,7 @@ impl Generator {
                     Self::ASCII_UPPER_A + i - 10
                 }
                 .into();
-                cb(&String::from(c));
+                cb(String::from(c));
             }
             HexLower => {
                 let i = (*num % 16) as u8;
@@ -477,10 +456,10 @@ impl Generator {
                     Self::ASCII_LOWER_A + i - 10
                 }
                 .into();
-                cb(&String::from(c));
+                cb(String::from(c));
             }
-            Char(c) => cb(&String::from(*c)),
-            Str(s) => cb(s),
+            Char(c) => cb(String::from(*c)),
+            Str(s) => cb(s.to_string()),
             OneOf { v, is_optional } => {
                 let v_len = self.len();
 
@@ -496,7 +475,7 @@ impl Generator {
                         *num -= 1;
                     }
                     for a in v {
-                        let a_len = a.len() as u128;
+                        let a_len = a.len();
                         if *num < a_len {
                             a.visit_exact_inner(num, cb);
                             break;
@@ -518,7 +497,7 @@ impl Generator {
                     parts.push(r);
                 }
 
-                parts.iter().rev().for_each(|part| cb(part));
+                parts.into_iter().rev().for_each(cb);
             }
             RepeatedMN(a, m, n) => {
                 let mut parts = Vec::with_capacity(n - m + 1);
@@ -527,7 +506,7 @@ impl Generator {
                     a.generate_on_top_of(num, &mut r);
                     parts.push(r);
                 }
-                parts.iter().rev().for_each(|part| cb(part));
+                parts.into_iter().rev().for_each(cb);
             }
             Sequence(v) => v.iter().for_each(|a| a.visit_exact_inner(num, cb)),
             Transform {
@@ -537,9 +516,17 @@ impl Generator {
                 let mut r = String::new();
                 inner.generate_on_top_of(num, &mut r);
                 let r = (transform_fn.0)(r);
-                cb(&r);
+                cb(r);
             }
+            // Empty won't invoke the callback
+            Empty => {}
         }
+    }
+}
+
+impl Default for Generator {
+    fn default() -> Self {
+        Generator::Empty
     }
 }
 
@@ -552,6 +539,12 @@ impl From<char> for Generator {
 impl From<&str> for Generator {
     fn from(s: &str) -> Self {
         Generator::Str(s.to_string())
+    }
+}
+
+impl From<String> for Generator {
+    fn from(s: String) -> Self {
+        Generator::Str(s)
     }
 }
 
@@ -624,15 +617,25 @@ impl Mul<usize> for Generator {
     type Output = Self;
 
     fn mul(self, rhs: usize) -> Self::Output {
-        let lhs = Box::new(self);
-        Generator::RepeatedN(lhs, rhs)
+        if rhs == 0 {
+            // Multiplying a generator by 0 transforms it to Empty
+            Generator::Empty
+        } else {
+            let lhs = Box::new(self);
+            Generator::RepeatedN(lhs, rhs)
+        }
     }
 }
 
 impl MulAssign<usize> for Generator {
     fn mul_assign(&mut self, rhs: usize) {
-        let repeat = self.clone() * rhs;
-        *self = repeat;
+        if rhs == 0 {
+            // Multiplying a generator by 0 transforms it to Empty
+            *self = Generator::Empty;
+        } else {
+            let repeat = self.clone() * rhs;
+            *self = repeat;
+        }
     }
 }
 
@@ -649,7 +652,12 @@ impl Mul<(usize, usize)> for Generator {
         assert!(m <= n);
 
         let lhs = Box::new(self);
-        Generator::RepeatedMN(lhs, m, n)
+        if m == 0 {
+            // if the lower bound is zero, then this is an optional pattern
+            Generator::RepeatedMN(lhs, 1, n).optional()
+        } else {
+            Generator::RepeatedMN(lhs, m, n)
+        }
     }
 }
 
@@ -658,9 +666,13 @@ impl MulAssign<(usize, usize)> for Generator {
         let (m, n) = rhs;
         assert!(m <= n);
 
-        // temporarily swap in Digit to avoid cloning self
-        let lhs = mem::replace(self, Generator::Digit);
-        *self = Generator::RepeatedMN(Box::new(lhs), m, n);
+        let lhs = mem::take(self);
+
+        *self = if m == 0 {
+            Generator::RepeatedMN(Box::new(lhs), 1, n).optional()
+        } else {
+            Generator::RepeatedMN(Box::new(lhs), m, n)
+        };
     }
 }
 
@@ -679,11 +691,10 @@ impl Add for Generator {
     fn add(self, rhs: Self) -> Self::Output {
         use Generator::*;
         match (self, rhs) {
+            // + Empty is a no-op
+            (s, Generator::Empty) => s,
             (Sequence(mut v1), Sequence(v2)) => {
-                for c in v2 {
-                    v1.push(c);
-                }
-
+                v1.extend(v2);
                 Sequence(v1)
             }
             (Sequence(mut v1), rhs) => {
@@ -691,10 +702,9 @@ impl Add for Generator {
                 Sequence(v1)
             }
             (lhs, Sequence(v2)) => {
-                let mut v = vec![lhs];
-                for c in v2 {
-                    v.push(c);
-                }
+                let mut v = Vec::with_capacity(1 + v2.len());
+                v.push(lhs);
+                v.extend(v2);
                 Sequence(v)
             }
 
@@ -710,22 +720,23 @@ impl AddAssign for Generator {
     fn add_assign(&mut self, rhs: Self) {
         use Generator::*;
         match (self, rhs) {
+            // Adding empty doesn't do anything
+            (_, Generator::Empty) => {}
             (Sequence(v1), Sequence(v2)) => {
-                for c in v2 {
-                    v1.push(c);
-                }
+                v1.extend(v2);
             }
             (Sequence(v1), rhs) => {
                 v1.push(rhs);
             }
-            (lhs, Sequence(mut v2)) => {
-                let left = mem::replace(lhs, Generator::Digit);
-                v2.insert(0, left);
-                *lhs = Sequence(v2);
+            (lhs, Sequence(v2)) => {
+                let mut v = Vec::with_capacity(1 + v2.len());
+                v.push(mem::take(lhs));
+                v.extend(v2);
+                *lhs = Sequence(v);
             }
 
             (lhs, rhs) => {
-                let left = mem::replace(lhs, Generator::Digit);
+                let left = mem::take(lhs);
                 let v = vec![left, rhs];
                 *lhs = Sequence(v)
             }
@@ -747,7 +758,6 @@ impl BitOrAssign for Generator {
                     is_optional: opt2,
                 },
             ) => {
-                v1.push(Digit);
                 v1.extend(v2);
                 if opt2 {
                     *opt1 = true;
@@ -757,28 +767,60 @@ impl BitOrAssign for Generator {
                 v.push(rhs);
             }
             (lhs, OneOf { mut v, is_optional }) => {
-                // swap out left to avoid clone
-                let left = mem::replace(lhs, Generator::Digit);
+                let left = mem::take(lhs);
                 v.insert(0, left);
                 *lhs = OneOf { v, is_optional };
             }
 
             (lhs, rhs) => {
-                let left = mem::replace(lhs, Generator::Digit);
+                let left = mem::take(lhs);
                 let v = vec![left, rhs];
-                //Self::reduce_optionals(&mut v);
                 *lhs = OneOf {
                     v,
                     is_optional: false,
                 };
             }
         }
-
-        // address potential duplicate optionals
-        //let s = mem::replace(self, Digit);
-        //*self = s.reduce_optionals();
     }
 }
+
+macro_rules! impl_add_or {
+    ($t: ty) => {
+        impl Add<$t> for Generator {
+            type Output = Generator;
+
+            fn add(self, rhs: $t) -> Self::Output {
+                let rhs: Generator = rhs.into();
+                self + rhs
+            }
+        }
+
+        impl AddAssign<$t> for Generator {
+            fn add_assign(&mut self, rhs: $t) {
+                *self = std::mem::take(self) + rhs;
+            }
+        }
+
+        impl BitOr<$t> for Generator {
+            type Output = Generator;
+
+            fn bitor(self, rhs: $t) -> Self::Output {
+                let rhs: Generator = rhs.into();
+                self | rhs
+            }
+        }
+
+        impl BitOrAssign<$t> for Generator {
+            fn bitor_assign(&mut self, rhs: $t) {
+                *self = std::mem::take(self) | rhs;
+            }
+        }
+    };
+}
+
+impl_add_or!(String);
+impl_add_or!(&str);
+impl_add_or!(char);
 
 #[cfg(test)]
 mod tests {
@@ -1022,7 +1064,7 @@ mod tests {
         assert_eq!("bar1234", bar1234);
 
         let mut s = String::with_capacity(7);
-        fbb_nnnn.visit_one(3703, |part| s.push_str(part));
+        fbb_nnnn.visit_one(3703, |part| s.push_str(&part));
         assert_eq!("bar1234", s);
     }
 
@@ -1063,10 +1105,79 @@ mod tests {
             let generated = address.generate_one(n);
 
             let mut visited  = String::with_capacity(generated.len());
-            address.visit_one(n, |part| visited.push_str(part));
+            address.visit_one(n, |part| visited.push_str(&part));
             assert_eq!(visited, generated);
 
             true
         }
+    }
+
+    #[test]
+    #[should_panic]
+    fn exceeds_u128() {
+        // The range for any generator is store id a `u128`.
+        // 2**128 == 340282366920938463463374607431768211456, which is 39 digits long.
+        // Trying to generate a 39 digit string, therefore, exceeds the capacity.
+        // We can build the generator successfully:
+        let g = Generator::Digit * 39;
+
+        // But when calculating the range, we'll get an overflow:
+        let _n = g.len();
+    }
+
+    #[test]
+    fn lower_limit_0() {
+        // Both should be: empty, a, aa
+        let g1 = Generator::Char('a') * (0, 2);
+        let g2 = (Generator::Char('a') * (1, 2)).optional();
+        assert_eq!(g1.len(), g2.len());
+        assert_eq!(g1, g2);
+
+        let g1 = (Generator::Char('a') * (1, 2)) * 0;
+        let g2 = Generator::Empty;
+        assert_eq!(g1.len(), g2.len());
+        assert_eq!(g1, g2);
+    }
+
+    #[test]
+    fn oneof_bitorassign_oneof() {
+        let mut g = oneof!('a', 'b');
+        g |= oneof!('x', 'y');
+        assert_eq!(g.len(), 4);
+    }
+
+    #[test]
+    fn test_add_addassign() {
+        let g = Generator::from("hello");
+        let g = g + ',' + ' ' + "world!".to_string();
+        assert_eq!(g.len(), 1);
+
+        let mut g = Generator::from("hello");
+        g += ',';
+        g += " world!";
+
+        assert_eq!(g.len(), 1);
+    }
+
+    #[test]
+    fn test_bitor_bitorassign() {
+        let mut g = Generator::from("hello") | "hi" | "salut".to_string();
+        g += ", ";
+        g += Generator::from("world") | "tout le monde" | "everyone";
+        g += '!';
+
+        assert_eq!(g.len(), 9);
+    }
+
+    #[test]
+    fn test_or_and() {
+        let mut g = Generator::from("hello");
+        g |= "salut";
+        g += ',';
+        g += " ";
+        g += Generator::from("world") | "tout le monde" | "🌎";
+        g += String::from("!");
+
+        assert_eq!(g.len(), 6);
     }
 }

@@ -1,8 +1,8 @@
 [package]
 name = "generator-combinator"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Adam Shirey <adam@shirey.ch>"]
-edition = "2018"
+edition = "2021"
 
 description = "Composes combinators to generate patterns of increasing complexity"
 readme = "README.md"
@@ -11,19 +11,12 @@ repository = "https://github.com/aeshirey/generator-combinator/"
 license = "MIT OR Apache-2.0"
 keywords = ["generator", "combinator"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-rand = { version = "0.8.0" }
+rand = { version = "0.8.0", optional = true }
 
 [dev-dependencies]
 quickcheck = "1"
 
-# TODO: permit `rand` to be opt-in
-#rand = { version = "0.8.0", optional = true }
-
-#[features]
-#std = []
-#default = ["std"]
-##default = []
-#with_rand = ["rand"]
+[features]
+default = []
+with_rand = ["rand"]

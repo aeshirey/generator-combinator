@@ -61,10 +61,13 @@
 //!
 //! assert_eq!(address.len(), 809_190_000);
 //!
-//! let addr_values = address.generate_all();
-//! println!("Example: {}", addr_values.random()); //Example: 344 W Yesler Way
-//! println!("Example: {}", addr_values.random()); //Example: 702 NE Spring Ct N
-//! println!("Example: {}", addr_values.random()); //Example: 803 SW Madison Way SE
+//! #[cfg(feature = "with_rand")]
+//! {
+//!     let addr_values = address.generate_all();
+//!     println!("Example: {}", addr_values.random()); //Example: 344 W Yesler Way
+//!     println!("Example: {}", addr_values.random()); //Example: 702 NE Spring Ct N
+//!     println!("Example: {}", addr_values.random()); //Example: 803 SW Madison Way SE
+//! }
 
 #[cfg(test)]
 #[macro_use]

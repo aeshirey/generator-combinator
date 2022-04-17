@@ -25,7 +25,7 @@ impl<'a> Iterator for StringIter<'a> {
     }
 }
 
-//#[cfg(with_rand)]
+#[cfg(feature = "with_rand")]
 impl<'a> StringIter<'a> {
     /// Generates a random value in the [`Generator`]'s domain
     pub fn random(&self) -> String {
